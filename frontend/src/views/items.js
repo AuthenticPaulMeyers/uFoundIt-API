@@ -1,0 +1,517 @@
+import { api } from '../api.js';
+import { state } from '../state.js';
+
+export default {
+  async render(params, query) {
+    const isNew = window.location.hash.includes('/new');
+    const isDetails = !!params.id;
+
+    if (isDetails) {
+      return this.renderDetails(params.id);
+    } else if (isNew) {
+      return this.renderNew(query.type || 'lost');
+    } else {
+      return this.renderList(query);
+    }
+  },
+
+  async afterRender(params, query) {
+    const isNew = window.location.hash.includes('/new');
+    const isDetails = !!params.id;
+
+    if (isDetails) {
+      await this.afterRenderDetails(params.id);
+    } else if (isNew) {
+      await this.afterRenderNew(query.type || 'lost');
+    } else {
+      await this.afterRenderList(query);
+    }
+  },
+
+  // ==========================================
+  // RENDER SEARCH / LIST
+  // ==========================================
+  renderList(query) {
+    return `
+      <div class="max-w-7xl mx-auto px-4 md:px-8 py-8 animate-fade-in">
+        <!-- Search and header row -->
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+          <div>
+            <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white">Campus Directory</h2>
+            <p class="text-slate-500 text-sm">Browse, filter, and match reported lost & found items</p>
+          </div>
+          <a href="#/items/new" class="px-6 py-3 bg-primary text-white font-bold rounded-xl text-sm flex items-center gap-2 hover:bg-primary/95 transition-all">
+            <span class="material-symbols-outlined text-sm">add_circle</span> Report Item
+          </a>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 rounded-2xl shadow-sm mb-8 flex flex-col md:flex-row items-center gap-4">
+          <div class="flex-1 w-full relative">
+            <span class="material-symbols-outlined absolute left-3 top-3 text-slate-400">search</span>
+            <input type="text" id="search-input" class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" placeholder="Search title, description, or location..." />
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <select id="filter-type" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+              <option value="">All Types</option>
+              <option value="lost">Lost Items</option>
+              <option value="found">Found Items</option>
+            </select>
+
+            <select id="filter-category" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+              <option value="">All Categories</option>
+              <!-- Populated dynamically -->
+            </select>
+
+            <select id="filter-status" class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+              <option value="">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="claimed">Claimed</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Items grid container -->
+        <div id="items-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          <div class="col-span-full flex flex-col items-center justify-center p-20">
+            <span class="material-symbols-outlined animate-spin text-5xl text-primary">sync</span>
+            <p class="text-slate-500 text-sm mt-4 font-semibold">Loading items database...</p>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  async afterRenderList(query) {
+    const searchInput = document.getElementById('search-input');
+    const typeSelect = document.getElementById('filter-type');
+    const catSelect = document.getElementById('filter-category');
+    const statusSelect = document.getElementById('filter-status');
+    const grid = document.getElementById('items-grid');
+
+    // Preset filters if query parameters are passed (e.g. ?type=lost)
+    if (query.type) typeSelect.value = query.type;
+    if (query.status) statusSelect.value = query.status;
+
+    // Fetch categories and items dynamically
+    const fetchFiltersAndItems = async () => {
+      try {
+        const catRes = await api.get('/api/categories/');
+        if (catRes.ok) {
+          const cats = await catRes.json();
+          // populate categories select options
+          catSelect.innerHTML = `<option value="">All Categories</option>` +
+            cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+        }
+      } catch (err) {
+        console.error('Failed to load categories:', err);
+      }
+
+      await refreshItems();
+    };
+
+    const refreshItems = async () => {
+      grid.innerHTML = `
+        <div class="col-span-full flex flex-col items-center justify-center p-20">
+          <span class="material-symbols-outlined animate-spin text-5xl text-primary">sync</span>
+          <p class="text-slate-500 text-sm mt-4 font-semibold">Filtering directory...</p>
+        </div>
+      `;
+
+      const searchVal = searchInput.value.trim();
+      const typeVal = typeSelect.value;
+      const catVal = catSelect.value;
+      const statusVal = statusSelect.value;
+
+      // Build url search parameters
+      const params = new URLSearchParams();
+      if (searchVal) params.append('search', searchVal);
+      if (typeVal) params.append('item_type', typeVal);
+      if (catVal) params.append('category', catVal);
+      if (statusVal) params.append('status', statusVal);
+
+      try {
+        const res = await api.get(`/api/items/?${params.toString()}`);
+        if (res.ok) {
+          const data = await res.json();
+          const items = data.results || [];
+          renderItemsList(items);
+        } else {
+          grid.innerHTML = `<div class="col-span-full text-center text-slate-500 py-8">Failed to fetch items</div>`;
+        }
+      } catch (err) {
+        console.error(err);
+        grid.innerHTML = `<div class="col-span-full text-center text-slate-500 py-8">Network error loading items</div>`;
+      }
+    };
+
+    const renderItemsList = (items) => {
+      if (items.length === 0) {
+        grid.innerHTML = `
+          <div class="col-span-full flex flex-col items-center justify-center p-16 text-center gap-3">
+            <span class="material-symbols-outlined text-6xl text-slate-300">search_off</span>
+            <h4 class="font-bold text-slate-700 dark:text-slate-200">No matching items found</h4>
+            <p class="text-slate-500 text-sm">Try widening your filters or search keywords.</p>
+          </div>
+        `;
+        return;
+      }
+
+      grid.innerHTML = items.map(item => {
+        const imageSrc = item.images && item.images.length > 0 ? item.images[0].image : null;
+        return `
+          <div class="item-card bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm hover:shadow-md cursor-pointer flex flex-col h-full" onclick="window.location.hash='#/items/${item.id}'">
+            <div class="relative h-44 bg-slate-100 shrink-0 flex items-center justify-center overflow-hidden">
+              ${imageSrc ? `<img src="${imageSrc}" alt="${item.title}" class="w-full h-full object-cover" />` : `<span class="material-symbols-outlined text-5xl text-slate-300">image</span>`}
+              <span class="absolute top-3 left-3 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${item.item_type === 'lost' ? 'bg-red-500 text-white' : 'bg-primary text-white'}">${item.item_type}</span>
+              ${item.status !== 'active' ? `<span class="absolute inset-0 bg-black/40 flex items-center justify-center"><span class="bg-gray-800 text-white text-[10px] font-bold px-3 py-1.5 rounded-full uppercase tracking-widest">${item.status}</span></span>` : ''}
+            </div>
+            <div class="p-4 flex flex-col flex-1 gap-2">
+              <h3 class="font-bold text-slate-800 dark:text-white truncate">${item.title}</h3>
+              <span class="text-[10px] font-bold text-primary flex items-center gap-0.5"><span class="material-symbols-outlined text-xs">folder</span> ${item.category_name || 'Category'}</span>
+              <p class="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">${item.description}</p>
+              <div class="mt-auto pt-2 border-t border-slate-50 dark:border-slate-800 flex justify-between items-center text-[10px] text-slate-400 font-medium">
+                <span class="flex items-center gap-0.5"><span class="material-symbols-outlined text-xs">location_on</span> ${item.location_name}</span>
+                <span>${new Date(item.date_found_lost).toLocaleDateString()}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    };
+
+    // Event listeners for live filtering
+    let timeout = null;
+    searchInput?.addEventListener('input', () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(refreshItems, 400);
+    });
+
+    typeSelect?.addEventListener('change', refreshItems);
+    catSelect?.addEventListener('change', refreshItems);
+    statusSelect?.addEventListener('change', refreshItems);
+
+    await fetchFiltersAndItems();
+  },
+
+  // ==========================================
+  // RENDER POST ITEM (NEW)
+  // ==========================================
+  renderNew(defaultType) {
+    return `
+      <div class="max-w-2xl mx-auto my-12 p-8 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-xl animate-fade-in">
+        <h2 class="text-2xl font-bold mb-2 dark:text-white">Report lost or found item</h2>
+        <p class="text-slate-500 text-sm mb-6">Complete the specifications below to notify other campus network users.</p>
+        
+        <div id="post-alert" class="hidden mb-6 p-4 rounded-xl text-sm flex items-center gap-2">
+          <span class="material-symbols-outlined" id="post-alert-icon">info</span>
+          <span id="post-alert-msg"></span>
+        </div>
+
+        <form id="form-post-item" class="flex flex-col gap-5">
+          <div class="flex flex-col gap-1">
+            <label for="item-title" class="text-xs font-semibold text-slate-700 dark:text-slate-300">Listing Title</label>
+            <input type="text" id="item-title" required class="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="e.g. iPhone 13 Pro with green cover" />
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="flex flex-col gap-1">
+              <label for="item-type" class="text-xs font-semibold text-slate-700 dark:text-slate-300">Listing Type</label>
+              <select id="item-type" class="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+                <option value="lost" ${defaultType === 'lost' ? 'selected' : ''}>Lost Item</option>
+                <option value="found" ${defaultType === 'found' ? 'selected' : ''}>Found Item</option>
+              </select>
+            </div>
+            
+            <div class="flex flex-col gap-1">
+              <label for="item-cat" class="text-xs font-semibold text-slate-700 dark:text-slate-300">Category</label>
+              <select id="item-cat" required class="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20">
+                <!-- Loaded dynamically -->
+              </select>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label for="item-desc" class="text-xs font-semibold text-slate-700 dark:text-slate-300">Detailed Description</label>
+            <textarea id="item-desc" required class="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 h-28" placeholder="Provide color, brand, distinct marks, case details, or screen wallpaper description..."></textarea>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="flex flex-col gap-1">
+              <label for="item-location" class="text-xs font-semibold text-slate-700 dark:text-slate-300">Location Name</label>
+              <input type="text" id="item-location" required class="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="e.g. Main Library 2nd floor" />
+            </div>
+
+            <div class="flex flex-col gap-1">
+              <label for="item-date" class="text-xs font-semibold text-slate-700 dark:text-slate-300">Date Lost / Found</label>
+              <input type="date" id="item-date" required class="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label for="item-question" class="text-xs font-semibold text-slate-700 dark:text-slate-300">Ownership Verification Question</label>
+            <input type="text" id="item-question" required class="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="e.g. What is written on the back? / What sticker is on the bottle?" />
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label for="item-files" class="text-xs font-semibold text-slate-700 dark:text-slate-300">Item Pictures</label>
+            <input type="file" id="item-files" multiple accept="image/*" class="text-xs bg-slate-50 p-3 rounded-xl border border-slate-200" />
+          </div>
+
+          <div class="flex items-center gap-2 mt-2">
+            <input type="checkbox" id="item-anon" class="rounded border-slate-200 text-primary focus:ring-primary" />
+            <label for="item-anon" class="text-xs text-slate-600 dark:text-slate-300 font-medium">Post anonymously (your name won't be shown publicly)</label>
+          </div>
+
+          <button type="submit" id="btn-post-submit" class="w-full cursor-pointer items-center justify-center rounded-xl h-12 bg-primary text-white text-sm font-bold shadow-md hover:bg-primary/95 transition-all flex gap-2 justify-center mt-4">
+            <span>Publish Report</span>
+          </button>
+        </form>
+      </div>
+    `;
+  },
+
+  async afterRenderNew() {
+    const form = document.getElementById('form-post-item');
+    const catSelect = document.getElementById('item-cat');
+    const submitBtn = document.getElementById('btn-post-submit');
+
+    const alertEl = document.getElementById('post-alert');
+    const alertMsg = document.getElementById('post-alert-msg');
+    const alertIcon = document.getElementById('post-alert-icon');
+
+    const showAlert = (message, isSuccess = true) => {
+      alertEl.classList.remove('hidden', 'bg-green-50', 'text-green-700', 'border-green-500', 'bg-red-50', 'text-red-700', 'border-red-500');
+      if (isSuccess) {
+        alertEl.classList.add('bg-green-50', 'text-green-700', 'border-l-4', 'border-green-500');
+        alertIcon.innerText = 'check_circle';
+      } else {
+        alertEl.classList.add('bg-red-50', 'text-red-700', 'border-l-4', 'border-red-500');
+        alertIcon.innerText = 'error';
+      }
+      alertMsg.innerText = message;
+    };
+
+    // Load categories
+    try {
+      const catRes = await api.get('/api/categories/');
+      if (catRes.ok) {
+        const cats = await catRes.json();
+        catSelect.innerHTML = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      alertEl.classList.add('hidden');
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<span class="material-symbols-outlined animate-spin text-sm">sync</span> Publishing...`;
+
+      // Use FormData for multipart/image uploads
+      const formData = new FormData();
+      formData.append('title', document.getElementById('item-title').value.trim());
+      formData.append('item_type', document.getElementById('item-type').value);
+      formData.append('category', catSelect.value);
+      formData.append('description', document.getElementById('item-desc').value.trim());
+      formData.append('location_name', document.getElementById('item-location').value.trim());
+      formData.append('date_found_lost', document.getElementById('item-date').value);
+      formData.append('verification_question', document.getElementById('item-question').value.trim());
+      formData.append('is_anonymous', document.getElementById('item-anon').checked);
+
+      // Append selected files
+      const fileInput = document.getElementById('item-files');
+      if (fileInput.files.length > 0) {
+        for (let i = 0; i < fileInput.files.length; i++) {
+          formData.append('uploaded_images', fileInput.files[i]);
+        }
+      }
+
+      try {
+        const res = await api.post('/api/items/', formData);
+        
+        if (res.ok) {
+          showAlert('Item reported successfully! Redirecting...', true);
+          setTimeout(() => {
+            window.location.hash = '#/items';
+          }, 1500);
+        } else {
+          const errs = await res.json();
+          showAlert(JSON.stringify(errs), false);
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = `<span>Publish Report</span>`;
+        }
+      } catch (err) {
+        console.error(err);
+        showAlert('Network exception occurred. Please try again.', false);
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `<span>Publish Report</span>`;
+      }
+    });
+  },
+
+  // ==========================================
+  // RENDER ITEM DETAILS
+  // ==========================================
+  renderDetails(itemId) {
+    return `
+      <div class="max-w-4xl mx-auto my-12 px-4 md:px-8 py-8 animate-fade-in">
+        <div id="details-container">
+          <!-- Dynamically populated details loader -->
+          <div class="flex flex-col items-center justify-center p-20 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+            <span class="material-symbols-outlined animate-spin text-5xl text-primary">sync</span>
+            <p class="text-slate-500 text-sm mt-4 font-semibold">Fetching item information...</p>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  async afterRenderDetails(itemId) {
+    const container = document.getElementById('details-container');
+    let item = null;
+
+    try {
+      const res = await api.get(`/api/items/${itemId}/`);
+      if (res.ok) {
+        item = await res.json();
+        renderItem(item);
+      } else {
+        container.innerHTML = `
+          <div class="text-center p-12 bg-white rounded-2xl border border-red-50">
+            <span class="material-symbols-outlined text-6xl text-red-500 mb-2">info</span>
+            <h3 class="font-bold text-lg">Item not found</h3>
+            <a href="#/items" class="text-primary font-semibold underline mt-2 block">Back to browse</a>
+          </div>
+        `;
+      }
+    } catch (error) {
+      console.error(error);
+      container.innerHTML = `<div class="text-center py-12">Connection error fetching item details</div>`;
+    }
+
+    function renderItem(data) {
+      const imageSrc = data.images && data.images.length > 0 ? data.images[0].image : null;
+      const isOwner = state.user && data.owner && state.user.id === data.owner.id;
+
+      container.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm">
+          <!-- Image Section -->
+          <div class="w-full aspect-square bg-slate-50 dark:bg-slate-800 rounded-2xl overflow-hidden flex items-center justify-center border border-slate-100 dark:border-slate-700 relative">
+            ${imageSrc ? `<img src="${imageSrc}" class="w-full h-full object-cover"/>` : '<span class="material-symbols-outlined text-8xl text-slate-300">image</span>'}
+            <span class="absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${data.item_type === 'lost' ? 'bg-red-500 text-white' : 'bg-primary text-white'}">${data.item_type}</span>
+          </div>
+
+          <!-- Metadata Section -->
+          <div class="flex flex-col gap-6">
+            <div class="flex flex-col gap-2">
+              <span class="px-3 py-1 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-500 w-fit uppercase tracking-widest">${data.category_name}</span>
+              <h2 class="text-2xl font-extrabold text-slate-900 dark:text-white leading-tight">${data.title}</h2>
+              <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Status: <strong class="text-primary">${data.status}</strong></span>
+            </div>
+
+            <div class="flex flex-col gap-1.5 p-4 bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-slate-100/50">
+              <div class="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                <span class="material-symbols-outlined text-sm">location_on</span>
+                <span>Location: ${data.location_name}</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                <span class="material-symbols-outlined text-sm">calendar_month</span>
+                <span>Date: ${new Date(data.date_found_lost).toLocaleDateString()}</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                <span class="material-symbols-outlined text-sm">person</span>
+                <span>Reporter: ${data.is_anonymous ? 'Anonymous user' : (data.owner?.full_name || 'Campus Student')}</span>
+              </div>
+            </div>
+
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Description</h3>
+              <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">${data.description}</p>
+            </div>
+
+            ${data.item_type === 'found' && !isOwner && data.status === 'active' ? `
+              <div class="mt-4 pt-4 border-t border-slate-100 flex flex-col gap-3">
+                <h3 class="text-sm font-bold text-slate-700 flex items-center gap-1"><span class="material-symbols-outlined text-base">verified</span> Verification Question</h3>
+                <p class="text-xs text-slate-500 font-medium italic">"${data.verification_question}"</p>
+                
+                <div id="claim-alert" class="hidden p-3 rounded-lg text-xs flex items-center gap-2"></div>
+                
+                <form id="form-claim-item" class="flex flex-col gap-3 mt-2">
+                  <input type="text" id="claim-answer" required class="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20" placeholder="Provide the answer or proof of ownership..." />
+                  <button type="submit" id="btn-claim-submit" class="w-full py-3 bg-primary hover:bg-primary/95 text-white font-bold text-xs rounded-xl shadow transition-all">
+                    Submit Claim request
+                  </button>
+                </form>
+              </div>
+            ` : ''}
+
+            ${isOwner ? `
+              <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-2">
+                <button id="btn-delete-listing" class="flex-1 py-3 bg-red-50 text-red-600 hover:bg-red-100 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1">
+                  <span class="material-symbols-outlined text-sm">delete</span> Delete Listing
+                </button>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+
+      // Handle claim form submission
+      document.getElementById('form-claim-item')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const submitBtn = document.getElementById('btn-claim-submit');
+        const alertEl = document.getElementById('claim-alert');
+        const answer = document.getElementById('claim-answer').value.trim();
+
+        submitBtn.disabled = true;
+        submitBtn.innerText = 'Submitting claim...';
+        alertEl.classList.add('hidden');
+
+        try {
+          const res = await api.post('/api/claims/', {
+            item: data.id,
+            verification_description: answer,
+          });
+
+          if (res.ok) {
+            alertEl.className = 'p-3 rounded-lg text-xs bg-green-50 text-green-700';
+            alertEl.innerHTML = `<span class="material-symbols-outlined text-sm">check_circle</span> Claim request submitted. Track it on your dashboard.`;
+            alertEl.classList.remove('hidden');
+            document.getElementById('form-claim-item').reset();
+          } else {
+            const err = await res.json();
+            alertEl.className = 'p-3 rounded-lg text-xs bg-red-50 text-red-700';
+            alertEl.innerHTML = `<span class="material-symbols-outlined text-sm">error</span> Failed: ${err.non_field_errors || JSON.stringify(err)}`;
+            alertEl.classList.remove('hidden');
+            submitBtn.disabled = false;
+            submitBtn.innerText = 'Submit Claim request';
+          }
+        } catch (error) {
+          console.error(error);
+          submitBtn.disabled = false;
+          submitBtn.innerText = 'Submit Claim request';
+        }
+      });
+
+      // Handle delete listing
+      document.getElementById('btn-delete-listing')?.addEventListener('click', async () => {
+        if (!confirm('Are you sure you want to delete this listing permanently?')) return;
+        try {
+          const res = await api.delete(`/api/items/${data.id}/`);
+          if (res.ok) {
+            window.location.hash = '#/items';
+          } else {
+            alert('Failed to delete item listing');
+          }
+        } catch (error) {
+          console.error(error);
+        }
+      });
+    }
+  }
+};

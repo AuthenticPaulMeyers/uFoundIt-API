@@ -323,11 +323,10 @@ class UserProfileModelTests(TestCase):
             email='test@example.com',
             password='testpass123'
         )
-        self.profile = UserProfile.objects.create(
-            user=self.user,
-            full_name='Test User',
-            university_email='test@university.edu'
-        )
+        self.profile = self.user.profile
+        self.profile.full_name = 'Test User'
+        self.profile.university_email = 'test@university.edu'
+        self.profile.save()
 
     def test_get_reputation_level_new(self):
         """Test reputation level for new user"""

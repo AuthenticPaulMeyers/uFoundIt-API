@@ -127,6 +127,12 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A user with this email already exists.")
         return value
 
+    def validate_university_email(self, value):
+        """Check that the university email ends with .edu"""
+        if value and not value.lower().endswith('.edu'):
+            raise serializers.ValidationError("University email must end with .edu")
+        return value
+
     def create(self, validated_data):
         """Create user and associated profile"""
         # Extract profile-specific data
@@ -149,16 +155,15 @@ class RegisterSerializer(serializers.ModelSerializer):
         # Create Django User
         user = User.objects.create_user(**validated_data)
 
-        # Create UserProfile
-        user_profile = UserProfile.objects.create(
-            user=user,
-            university_email=university_email,
-            full_name=full_name,
-            campus_location=campus_location,
-        )
+        # Update UserProfile created by signals
+        user_profile = user.profile
+        user_profile.university_email = university_email
+        user_profile.full_name = full_name
+        user_profile.campus_location = campus_location
+        user_profile.save()
 
-        # Create UserVerification
-        UserVerification.objects.create(user_profile=user_profile)
+        # Ensure UserVerification is created (the signal might have already created it)
+        UserVerification.objects.get_or_create(user_profile=user_profile)
 
         return user
 
