@@ -92,12 +92,16 @@ export function updateNavigation() {
   if (state.isAuthenticated) {
     // Nav links for logged in users
     if (navLinks) {
-      navLinks.innerHTML = `
-        <a class="text-[#111418] dark:text-slate-300 text-sm font-medium hover:text-primary transition-colors ${currentHash.startsWith('#/items') && !currentHash.includes('new') ? 'text-primary font-bold' : ''}" href="#/items">Browse Items</a>
-        <a class="text-[#111418] dark:text-slate-300 text-sm font-medium hover:text-primary transition-colors ${currentHash.includes('new') ? 'text-primary font-bold' : ''}" href="#/items/new">Post Item</a>
-        <a class="text-[#111418] dark:text-slate-300 text-sm font-medium hover:text-primary transition-colors ${currentHash === '#/chat' ? 'text-primary font-bold' : ''}" href="#/chat">Messages</a>
-        <a class="text-[#111418] dark:text-slate-300 text-sm font-medium hover:text-primary transition-colors ${currentHash === '#/dashboard' ? 'text-primary font-bold' : ''}" href="#/dashboard">Dashboard</a>
-      `;
+      if (currentHash === '#/dashboard' || currentHash.startsWith('#/profile/')) {
+        navLinks.innerHTML = '';
+      } else {
+        navLinks.innerHTML = `
+          <a class="text-[#111418] dark:text-slate-300 text-sm font-medium hover:text-primary transition-colors ${currentHash.startsWith('#/items') && !currentHash.includes('new') ? 'text-primary font-bold' : ''}" href="#/items">Browse Items</a>
+          <a class="text-[#111418] dark:text-slate-300 text-sm font-medium hover:text-primary transition-colors ${currentHash.includes('new') ? 'text-primary font-bold' : ''}" href="#/items/new">Post Item</a>
+          <a class="text-[#111418] dark:text-slate-300 text-sm font-medium hover:text-primary transition-colors ${currentHash === '#/chat' ? 'text-primary font-bold' : ''}" href="#/chat">Messages</a>
+          <a class="text-[#111418] dark:text-slate-300 text-sm font-medium hover:text-primary transition-colors ${currentHash === '#/dashboard' ? 'text-primary font-bold' : ''}" href="#/dashboard">Dashboard</a>
+        `;
+      }
     }
 
     // Avatar and logout button for authenticated

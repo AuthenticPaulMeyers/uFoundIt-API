@@ -27,13 +27,15 @@ class ItemListSerializer(serializers.ModelSerializer):
     category = ItemCategorySerializer(read_only=True)
     thumbnail = serializers.SerializerMethodField()
     poster_name = serializers.SerializerMethodField()
+    owner = UserProfileSerializer(source='poster', read_only=True)
 
     class Meta:
         model = Item
         fields = [
             'id', 'title', 'item_type', 'status', 'category', 
             'location_name', 'date_found_lost', 'thumbnail', 
-            'poster_name', 'verification_question', 'created_at'
+            'poster_name', 'verification_question', 'created_at',
+            'owner'
         ]
 
     def get_thumbnail(self, obj):
@@ -55,6 +57,7 @@ class ItemDetailSerializer(serializers.ModelSerializer):
     category_name = serializers.ReadOnlyField(source='category.name')
     images = ItemImageSerializer(many=True, read_only=True)
     poster = UserProfileSerializer(read_only=True)
+    owner = UserProfileSerializer(source='poster', read_only=True)
     uploaded_images = serializers.ListField(
         child=serializers.ImageField(max_length=1000000, allow_empty_file=False, use_url=False),
         write_only=True,
@@ -64,7 +67,7 @@ class ItemDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Item
         fields = [
-            'id', 'poster', 'title', 'description', 'category', 'category_name',
+            'id', 'poster', 'owner', 'title', 'description', 'category', 'category_name',
             'item_type', 'status', 'location_name', 'campus_area', 
             'date_found_lost', 'is_anonymous', 'verification_question', 'images', 'uploaded_images',
             'created_at', 'updated_at'
